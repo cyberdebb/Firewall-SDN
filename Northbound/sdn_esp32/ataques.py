@@ -100,35 +100,6 @@ def stop_attack():
     attack_thread = None
     return jsonify({"status": "Ataque interrompido com sucesso"})
 
-@attack_app.route('/attack/spoof_mac', methods=['POST'])
-def spoof_mac():
-    """
-    Rota da API para trocar o endereço MAC da interface de rede do Raspberry Pi.
-    Isso é útil para testar se o controlador consegue lidar com mudanças de MAC
-    ou para tentar evadir um bloqueio baseado em MAC.
-    """
-    data = request.get_json()
-    # Permite especificar a interface (ex: 'eth0' ou 'wlan0'). Padrão é 'wlan0'.
-    iface = data.get('iface', 'wlan0')
-    
-    # Gera um novo endereço MAC aleatório. O '02' no início indica que é um
-    # endereço localmente administrado, o que é uma boa prática.
-    new_mac = f"02:00:00:{random.randint(0x00, 0xFF):02x}:{random.randint(0x00, 0xFF):02x}:{random.randint(0x00, 0xFF):02x}"
-    
-    print(f"Tentando alterar o MAC da interface {iface} para {new_mac}...")
-    try:
-        # Os comandos para alterar o MAC requerem privilégios de root (sudo).
-        # É necessário desativar a interface, alterar o MAC e reativá-la.
-        subprocess.run(["sudo", "ifconfig", iface, "down"], check=True)
-        subprocess.run(["sudo", "ifconfig", iface, "hw", "ether", new_mac], check=True)
-        subprocess.run(["sudo", "ifconfig", iface, "up"], check=True)
-        return jsonify({"status": "MAC alterado com sucesso", "new_mac": new_mac})
-    except subprocess.CalledProcessError as e:
-        # Captura erros se os comandos falharem.
-        return jsonify({"error": f"Falha ao executar comando: {e}"}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 if __name__ == '__main__':
     # Inicia o servidor Flask da API de ataques.
     # 'host="0.0.0.0"' permite que a API seja acessível de outros dispositivos na rede.
