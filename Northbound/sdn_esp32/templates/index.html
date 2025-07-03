@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle de Ataques</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f0f0f0; padding: 20px; }
+        .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h2 { text-align: center; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        .start-btn { background-color: #dc3545; }
+        .stop-btn { background-color: #007bff; }
+        .spoof-btn { background-color: #28a745; }
+        #status { margin-top: 20px; padding: 10px; background-color: #e9ecef; border-radius: 4px; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Painel de Controle</h2>
+
+    <div class="form-group">
+        <label for="target_ip">IP Alvo para Ping Flood:</label>
+        <input type="text" id="target_ip" placeholder="Ex: 8.8.8.8">
+        <button class="start-btn" onclick="startPingFlood()">Iniciar Ping Flood</button>
+    </div>
+
+    <hr>
+
+    <div class="form-group">
+        <label>Controle Geral:</label>
+        <button class="stop-btn" onclick="stopAttack()">Parar Ataque Atual</button>
+    </div>
+
+    <hr>
+
+     <div class="form-group">
+        <label for="iface">Interface para Spoofing de MAC:</label>
+        <input type="text" id="iface" value="wlan0">
+        <button class="spoof-btn" onclick="spoofMac()">Fazer Spoof do MAC</button>
+    </div>
+
+    <div id="status">Aguardando comandos...</div>
+</div>
+
+<script>
+    const statusDiv = document.getElementById('status');
+
+    async function sendRequest(url, method, body) {
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await response.json();
+            let message = data.status || `Erro: ${data.error}`;
+            if (data.new_mac) {
+                message += ` | Novo MAC: ${data.new_mac}`;
+            }
+            statusDiv.textContent = message;
+        } catch (error) {
+            statusDiv.textContent = `Erro na comunicação com a API: ${error}`;
+        }
+    }
+
+    function startPingFlood() {
+        const targetIp = document.getElementById('target_ip').value;
+        if (!targetIp) {
+            alert('Por favor, insira um IP alvo.');
+            return;
+        }
+        sendRequest('/attack/ping_flood', 'POST', { target_ip: targetIp });
+    }
+
+    function stopAttack() {
+        sendRequest('/attack/stop', 'POST', {});
+    }
+
+    function spoofMac() {
+        const iface = document.getElementById('iface').value;
+        sendRequest('/attack/spoof_mac', 'POST', { iface: iface });
+    }
+</script>
+
+</body>
+</html>
