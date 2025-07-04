@@ -1,6 +1,4 @@
-// =================================================================
-// ||        ARQUIVO FINAL: policy_pusher.cpp (ESP32 Extra)       ||
-// =================================================================
+// ||   policy_pusher.cpp (ESP32 Extra)       ||
 // - Ao ligar, conecta-se ao Wi-Fi.
 // - Envia um conjunto pré-definido de regras para a API no Raspberry Pi.
 // - Após enviar, seu trabalho está feito.
@@ -9,13 +7,12 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-// --- Configurações ---
-// Ele precisa se conectar à mesma rede que o Pi, não à rede do controlador
-const char* wifi_ssid = "NOME_DA_SUA_REDE_WIFI_PRINCIPAL";
-const char* wifi_password = "SENHA_DA_SUA_REDE_WIFI_PRINCIPAL";
+// Configurações
+const char* wifi_ssid = "SDN_Control_Net";
+const char* wifi_password = "666666";
 
 // IP do Raspberry Pi onde a dashboard_api.py está rodando
-const char* pi_api_ip = "192.168.X.Y"; // << MUDE PARA O IP REAL DO SEU PI
+const char* pi_api_ip = "192.168.0.236";
 const int pi_api_port = 5000;
 
 // Função para instalar uma regra de firewall
@@ -73,6 +70,5 @@ void setup() {
 }
 
 void loop() {
-  // Nada a fazer no loop
   delay(60000);
 }

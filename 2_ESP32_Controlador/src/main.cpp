@@ -60,9 +60,7 @@ void loadFirewallRules() {
   file.close();
 }
 
-
-// --- Lógica de Decisão do Firewall ---
-
+// Lógica de Decisão do Firewall
 // Consulta a lista LOCAL de regras para decidir a ação para um MAC
 String checkLocalFirewallRules(String mac) {
   JsonArray rules = firewallRules["rules"].as<JsonArray>();

