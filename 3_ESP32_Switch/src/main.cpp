@@ -1,7 +1,6 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include "esp_wifi_types.h"
-#include "esp_wifi_internal.h" 
 #include <vector>
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
