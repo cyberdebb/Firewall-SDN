@@ -6,34 +6,34 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
-// --- Configurações da Rede e Conexão ---
+// Configurações da Rede e Conexão
 const char* controller_ssid = "SDN_Control_Net";
 const char* controller_password = "securepassword";
 const char* websocket_server_host = "192.168.4.1";
 const uint16_t websocket_server_port = 80;
 
-// --- Estruturas de Dados para o Firewall ---
+// Estruturas de Dados para o Firewall
 enum Policy { PERMIT, DENY };
 struct FirewallRule {
   String mac;
   Policy policy;
 };
 
-// --- Variáveis Globais ---
+// Variáveis Globais
 std::vector<FirewallRule> acl;
 volatile bool is_controller_connected = false;
 const bool FAIL_SECURE_MODE = true;
 
 WebSocketsClient webSocket;
 
-// --- Funções Auxiliares ---
+// Funções Auxiliares
 String macToString(const uint8_t* mac) {
   char macStr[18];
   sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   return String(macStr);
 }
 
-// --- Lógica Principal do Firewall ---
+// Lógica Principal do Firewall
 void promiscuous_rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
   if (type != WIFI_PKT_DATA) return;
 
@@ -59,7 +59,7 @@ void promiscuous_rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
   }
 }
 
-// --- Comunicação com o Controlador ---
+// Comunicação com o Controlador
 void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
@@ -111,7 +111,7 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
   }
 }
 
-// --- Funções de Configuração e Loop ---
+// Funções de Configuração e Loop
 void setup() {
   Serial.begin(115200);
   Serial.println("\nIniciando Switch SDN v3...");
