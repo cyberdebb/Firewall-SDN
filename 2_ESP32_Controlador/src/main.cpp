@@ -1,153 +1,186 @@
-/*
- * ||  Firewall Controlador Inteligente (All-in-One)  ||
- * - Atua como o CÉREBRO e MÚSCULO da rede SDN.
- * - Cria um Access Point (AP) para os clientes se conectarem.
- * - Mantém a lista mestre de regras de firewall e a persiste no LittleFS.
- * - USA MODO PROMÍSCUO para "ouvir" todo o tráfego em sua própria rede.
- * - Ao detectar um pacote de um MAC bloqueado, CHUTA ATIVAMENTE o
- * dispositivo da rede (de-authentication).
- * - Oferece uma API HTTP para ser gerenciado remotamente pelo Raspberry Pi.
- */
+// ===================================================================
+// ||   Firmware para o ESP32-Controlador (v6)                    ||
+// ===================================================================
 
 #include <WiFi.h>
 #include <esp_wifi.h>
-#include "esp_wifi_types.h"
-#include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <WiFiUdp.h>
+#include <WiFiServer.h> 
+#include <WiFiClient.h>
 
-// Estrutura do Pacote
+// ESTRUTURAS
 typedef struct {
     uint16_t frame_control;
     uint16_t duration_id;
-    uint8_t addr1[6];
-    uint8_t addr2[6];
-    uint8_t addr3[6];
+    uint8_t addr1[6], addr2[6], addr3[6];
     uint16_t seq_ctrl;
-    uint8_t addr4[6];
 } wifi_ieee80211_mac_hdr_t;
 
-// Configurações da Rede
-const char* controller_ssid = "SDN_Control_Net";
-const char* controller_password = "666666";
+// CONFIGURAÇÕES
+const char* main_ssid = "Wifi July";
+const char* main_password = "jlichassot";
+const char* raspberry_pi_ip = "192.168.161.102";
+const int udp_log_port = 12345;
+WiFiServer server(80); 
+WiFiUDP udp;
 
-AsyncWebServer server(80);
-
-// Armazenamento de Regras e Estado
 JsonDocument firewallRules;
 const char* rulesFilePath = "/firewall_rules.json";
 
-// Funções de Persistência (LittleFS)
+bool udp_logging_enabled = false;
+
+void log_message(const char* message) {
+    Serial.println(message);
+    if (udp_logging_enabled) {
+        udp.beginPacket(raspberry_pi_ip, udp_log_port);
+        String log_prefix = "[Controlador] ";
+        udp.print(log_prefix + message);
+        udp.endPacket();
+    }
+}
 void saveFirewallRules() {
-  File file = LittleFS.open(rulesFilePath, "w");
-  if (!file) { Serial.println("Falha ao salvar regras."); return; }
-  serializeJson(firewallRules, file);
-  file.close();
+    File file = LittleFS.open(rulesFilePath, "w");
+    if (!file) { log_message("Falha ao abrir arquivo para salvar regras."); return; }
+    serializeJson(firewallRules, file);
+    file.close();
+    log_message("Regras salvas no LittleFS.");
 }
-
 void loadFirewallRules() {
-  if (!LittleFS.begin()) { Serial.println("Falha ao montar LittleFS."); return; }
-  File file = LittleFS.open(rulesFilePath, "r");
-  if (!file) {
-    Serial.println("Arquivo de regras não encontrado.");
-    firewallRules["rules"] = JsonArray();
-    return;
-  }
-  DeserializationError error = deserializeJson(firewallRules, file);
-  if (error) {
-    Serial.println("Falha ao ler regras.");
-    firewallRules["rules"] = JsonArray();
-  } else {
-    Serial.println("Regras de firewall carregadas.");
-  }
-  file.close();
-}
-
-// Decisão e Ação do Firewall
-// Converte um endereço MAC (array de bytes) para uma String
-String macToString(const uint8_t* mac) {
-  char macStr[18];
-  sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  return String(macStr);
-}
-
-// Função de callback chamada para cada pacote capturado
-void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
-  if (type != WIFI_PKT_DATA) {
-    return;
-  }
-
-  wifi_promiscuous_pkt_t *pkt = (wifi_promiscuous_pkt_t *)buf;
-  wifi_ieee80211_mac_hdr_t *hdr = (wifi_ieee80211_mac_hdr_t *)pkt->payload;
-
-  String src_mac_str = macToString(hdr->addr2);
-
-  // Consulta a lista LOCAL de regras
-  JsonArray rules = firewallRules["rules"].as<JsonArray>();
-  for (JsonObject rule : rules) {
-    if (src_mac_str.equalsIgnoreCase(rule["match"]["mac_address"])) {
-      // Se a regra para este MAC for "deny" seguimos
-      if (String("deny").equalsIgnoreCase(rule["action"])) {
-        Serial.printf("PACOTE ILEGAL DETECTADO! Origem: %s. Ação: BLOQUEAR E DESCONECTAR.\n", src_mac_str.c_str());
-
-        // AÇÃO DE BLOQUEIO: Chuta o dispositivo da rede.
-        esp_wifi_deauth_sta(0); // Isso pode causar a deautenticação de clientes.
-                               // Talvez o ideal seria a implementação que buscaria o AID do cliente com base no MAC.
-                               // Por ora, o log já prova a detecção, mas faz sentido melhorar em outra versão
-        return; // Para de processar este pacote
-      }
+    if (!LittleFS.begin()) { Serial.println("Falha ao montar LittleFS."); return; }
+    File file = LittleFS.open(rulesFilePath, "r");
+    if (!file) {
+        log_message("Arquivo de regras não encontrado. Criando um novo.");
+        firewallRules.to<JsonArray>();
+        return;
     }
-  }
-  // Se não encontrou nenhuma regra de bloqueio, o pacote é permitido implicitamente,
-  //o que não é ideal, mas no futuro melhoramos também
-}
-
-
-// Funções de Configuração e Loop
-void setup() {
-  Serial.begin(115200);
-  Serial.println("\nIniciando Firewall Controlador Inteligente...");
-
-  // 1. Carrega as regras de firewall da memória flash
-  loadFirewallRules();
-
-  // 2. Configura o ESP32 como um Access Point (AP)
-  WiFi.softAP(controller_ssid, controller_password);
-  Serial.print("AP do Controlador iniciado. IP: ");
-  Serial.println(WiFi.softAPIP());
-
-  // 3. ATIVA O MODO SNIFFER/FIREWALL EM SI MESMO
-  wifi_config_t conf;
-  esp_wifi_get_config(WIFI_IF_AP, &conf);
-  esp_wifi_set_channel(conf.ap.channel, WIFI_SECOND_CHAN_NONE);
-  esp_wifi_set_promiscuous(true);
-  esp_wifi_set_promiscuous_rx_cb(&sniffer_callback);
-  Serial.println("Modo Firewall Ativo: ouvindo todo o tráfego da rede.");
-
-  // 4. Configura a API DE GERENCIAMENTO para o Raspberry Pi
-  server.on("/firewall/rules", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String response;
-    serializeJson(firewallRules, response);
-    request->send(200, "application/json", response);
-  });
-
-  server.on("/firewall/rules", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
-  [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    JsonDocument newRule;
-    if (deserializeJson(newRule, data, len) == DeserializationError::Ok) {
-      firewallRules["rules"].add(newRule.as<JsonObject>());
-      saveFirewallRules();
-      request->send(200, "text/plain", "Regra instalada no controlador.");
+    if (deserializeJson(firewallRules, file) != DeserializationError::Ok) {
+        log_message("Falha ao ler regras. Começando com lista vazia.");
+        firewallRules.to<JsonArray>();
     } else {
-      request->send(400, "text/plain", "JSON inválido.");
+        log_message("Regras de firewall carregadas do LittleFS.");
     }
-  });
-
-  // 5. Inicia o servidor web
-  server.begin();
-  Serial.println("API de gerenciamento iniciada. Controlador pronto.");
+    file.close();
+}
+String macToString(const uint8_t* mac) {
+    char macStr[18];
+    sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return String(macStr);
+}
+void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
+    if (type != WIFI_PKT_DATA) return;
+    wifi_promiscuous_pkt_t* pkt = (wifi_promiscuous_pkt_t*)buf;
+    wifi_ieee80211_mac_hdr_t* hdr = (wifi_ieee80211_mac_hdr_t*)pkt->payload;
+    String src_mac_str = macToString(hdr->addr2);
+    JsonArray rules = firewallRules.as<JsonArray>();
+    for (JsonObject rule : rules) {
+        if (src_mac_str.equalsIgnoreCase(rule["match"]["mac_address"])) {
+            if (String("deny").equalsIgnoreCase(rule["action"])) {
+                char log_buffer[100];
+                sprintf(log_buffer, "PACOTE ILEGAL! Origem: %s.", src_mac_str.c_str());
+                log_message(log_buffer);
+                return;
+            }
+        }
+    }
 }
 
+// SETUP PRINCIPAL 
+void setup() {
+    Serial.begin(115200);
+    Serial.println("\n\n--- Iniciando Firewall Controlador (v6 - Leve e Estável) ---");
+    loadFirewallRules();
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(main_ssid, main_password);
+    Serial.print("Conectando à rede principal...");
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nCONEXÃO WI-FI ESTABELECIDA!");
+    
+    udp_logging_enabled = true;
+    log_message((String("IP do Controlador: ") + WiFi.localIP().toString()).c_str());
+
+    // Inicia o servidor web leve
+    server.begin();
+    log_message("API de gerenciamento de regras iniciada.");
+
+    // Inicia o Modo Sniffer
+    esp_wifi_set_channel(WiFi.channel(), WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_promiscuous(true);
+    esp_wifi_set_promiscuous_rx_cb(&sniffer_callback);
+    log_message("Modo Firewall (Sniffer) ativado.");
+
+    log_message(">>> Controlador pronto e 100% operacional. <<<");
+}
+
+// O loop alida com as requisições HTTP 
 void loop() {
-  delay(10000);
+    WiFiClient client = server.available(); 
+    if (client) {
+        log_message("Novo cliente conectado à API.");
+        String currentLine = "";
+        String requestBody = "";
+        bool bodyStarted = false;
+
+        while (client.connected()) {
+            if (client.available()) {
+                char c = client.read();
+                if (c == '\n') {
+                    if (currentLine.length() == 0) { 
+                        bodyStarted = true;
+                    }
+                    currentLine = "";
+                } else if (c != '\r') {
+                    currentLine += c;
+                }
+                
+                if (bodyStarted) {
+                    requestBody += c;
+                }
+            }
+
+            // Se o cliente desconectar, processa a requisição
+            if (!client.connected()) break;
+        }
+
+        // Processamento da Requisição 
+        if (currentLine.startsWith("GET /firewall/rules")) {
+            log_message("Recebida requisição GET /firewall/rules");
+            String responseBody;
+            serializeJson(firewallRules, responseBody);
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-Type: application/json");
+            client.println("Connection: close");
+            client.println();
+            client.println(responseBody);
+        } else if (currentLine.startsWith("POST /firewall/rules")) {
+            log_message("Recebida requisição POST /firewall/rules");
+            JsonDocument newRule;
+            if (deserializeJson(newRule, requestBody.substring(1)) == DeserializationError::Ok) {
+                firewallRules.as<JsonArray>().add(newRule);
+                saveFirewallRules();
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-Type: application/json");
+                client.println("Connection: close");
+                client.println();
+                client.println("{\"status\":\"Regra recebida e salva\"}");
+                log_message("Nova regra salva com sucesso.");
+            } else {
+                client.println("HTTP/1.1 400 Bad Request");
+                client.println("Content-Type: application/json");
+                client.println("Connection: close");
+                client.println();
+                client.println("{\"error\":\"JSON inválido\"}");
+                log_message("ERRO: Recebido JSON inválido via API.");
+            }
+        }
+        
+        delay(1);
+        client.stop();
+        log_message("Cliente da API desconectado.");
+    }
 }

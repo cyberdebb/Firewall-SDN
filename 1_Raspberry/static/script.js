@@ -1,9 +1,95 @@
+
 // Estado global da aplicação
 const appState = {
     isAttacking: false,
     activeRules: [],
-    API_BASE_URL: 'http://localhost:5000'
+    API_BASE_URL: 'http://localhost:5000',
+    WS_URL: `ws://${window.location.hostname}:81`,
+    webSocket: null,
 };
+
+// --- Funções do WebSocket ---
+
+function connectWebSocket() {
+    console.log(`Tentando conectar ao WebSocket em ${appState.WS_URL}`);
+    appState.webSocket = new WebSocket(appState.WS_URL);
+
+    appState.webSocket.onopen = () => {
+        console.log("WebSocket Conectado!");
+        updateWebsocketStatus(true);
+        // Se identifica para o servidor como uma UI
+        appState.webSocket.send(JSON.stringify({ type: "ui" }));
+        addLog("Sistema", "Conectado ao Hub de Logs do Orquestrador.", "system");
+    };
+
+    appState.webSocket.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === "log") {
+                addLog(data.source, data.message);
+            }
+        } catch (e) {
+            console.error("Erro ao processar mensagem do WebSocket:", e);
+        }
+    };
+
+    appState.webSocket.onclose = () => {
+        console.log("WebSocket Desconectado. Tentando reconectar em 3s...");
+        updateWebsocketStatus(false);
+        addLog("Sistema", "Desconectado do Hub de Logs. Tentando reconectar...", "error");
+        setTimeout(connectWebSocket, 3000);
+    };
+
+    appState.webSocket.onerror = (error) => {
+        console.error("Erro no WebSocket:", error);
+        addLog("Sistema", "Erro na conexão WebSocket.", "error");
+        appState.webSocket.close();
+    };
+}
+
+function updateWebsocketStatus(isConnected) {
+    const statusDiv = document.getElementById('websocketStatus');
+    if (isConnected) {
+        statusDiv.innerHTML = `
+            <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+            <span class="text-green-400 text-sm">WEBSOCKET CONECTADO</span>
+        `;
+    } else {
+        statusDiv.innerHTML = `
+            <div class="w-2 h-2 bg-red-400 rounded-full"></div>
+            <span class="text-red-400 text-sm">WEBSOCKET DESCONECTADO</span>
+        `;
+    }
+}
+
+// --- Funções do Terminal de Log ---
+
+function addLog(source, message, type = 'info') {
+    const logContainer = document.getElementById('logContainer');
+    const logEntry = document.createElement('div');
+
+    let sourceColor = "text-yellow-400"; // Cor padrão para RaspberryPi
+    if (source === "Switch") sourceColor = "text-cyan-400";
+    if (source === "Controlador") sourceColor = "text-fuchsia-400";
+    if (source === "Sistema") sourceColor = "text-green-400";
+
+    let messageColor = "text-green-300";
+    if (type === 'error') messageColor = "text-red-400";
+
+    const timestamp = new Date().toLocaleTimeString();
+
+    logEntry.className = `log-entry ${messageColor}`;
+    logEntry.innerHTML = `<span class="text-green-600">[${timestamp}]</span> <span class="font-bold ${sourceColor}">[${source}]</span> <span>${message}</span>`;
+
+    logContainer.appendChild(logEntry);
+    // Auto-scroll para a última mensagem
+    logContainer.scrollTop = logContainer.scrollHeight;
+
+    // Remove logs antigos se houver muitos (mantém apenas os últimos 100)
+    if (logContainer.children.length > 100) {
+        logContainer.removeChild(logContainer.firstChild);
+    }
+}
 
 // Função para mostrar toast notifications
 function showToast(title, description, type = 'success') {
@@ -54,16 +140,27 @@ function updateStatus(message, isAttacking = false) {
     const attackStatus = document.getElementById('attackStatus');
     const statusDisplay = document.getElementById('statusDisplay');
 
-    statusText.textContent = message;
+    if (statusText) statusText.textContent = message;
     appState.isAttacking = isAttacking;
 
-    if (isAttacking) {
-        attackStatus.style.display = 'inline-flex';
-        statusDisplay.className = statusDisplay.className.replace('border-green-500-30 bg-green-900-10', 'border-red-500-30 bg-red-900-10');
-    } else {
-        attackStatus.style.display = 'none';
-        statusDisplay.className = statusDisplay.className.replace('border-red-500-30 bg-red-900-10', 'border-green-500-30 bg-green-900-10');
+    if (attackStatus) {
+        if (isAttacking) {
+            attackStatus.style.display = 'inline-flex';
+        } else {
+            attackStatus.style.display = 'none';
+        }
     }
+
+    if (statusDisplay) {
+        if (isAttacking) {
+            statusDisplay.className = statusDisplay.className.replace('border-green-500-30 bg-green-900-10', 'border-red-500-30 bg-red-900-10');
+        } else {
+            statusDisplay.className = statusDisplay.className.replace('border-red-500-30 bg-red-900-10', 'border-green-500-30 bg-green-900-10');
+        }
+    }
+
+    // Adiciona também ao log
+    addLog("Sistema", message, isAttacking ? "error" : "info");
 }
 
 // Função para validar MAC address
@@ -82,6 +179,7 @@ async function addBlockRule() {
             '> Formato esperado: AA:BB:CC:DD:EE:FF',
             'error'
         );
+        addLog("Sistema", `Tentativa de bloqueio com MAC inválido: ${macAddress}`, "error");
         return;
     }
 
@@ -98,6 +196,8 @@ async function addBlockRule() {
             `> MAC ${macAddress} foi bloqueado`
         );
 
+        addLog("Firewall", `Regra de bloqueio adicionada para MAC: ${macAddress}`, "info");
+
         macInput.value = '';
         setTimeout(loadActiveRules, 1000);
     } catch (error) {
@@ -106,6 +206,7 @@ async function addBlockRule() {
             '> Não foi possível adicionar regra. Verifique o servidor Flask.',
             'error'
         );
+        addLog("Sistema", `Erro ao adicionar regra: ${error.message}`, "error");
     } finally {
         button.disabled = false;
         button.textContent = '> BLOQUEAR MAC';
@@ -119,6 +220,7 @@ async function loadActiveRules() {
         if (data && data.rules) {
             appState.activeRules = data.rules;
             renderActiveRules();
+            addLog("Sistema", `Carregadas ${data.rules.length} regras ativas`, "info");
         }
     } catch (error) {
         showToast(
@@ -128,6 +230,7 @@ async function loadActiveRules() {
         );
         appState.activeRules = [];
         renderActiveRules();
+        addLog("Sistema", `Erro ao carregar regras: ${error.message}`, "error");
     }
 }
 
@@ -136,7 +239,9 @@ function renderActiveRules() {
     const container = document.getElementById('rulesContainer');
     const count = document.getElementById('rulesCount');
 
-    count.textContent = `[${appState.activeRules.length}]`;
+    if (count) count.textContent = `[${appState.activeRules.length}]`;
+
+    if (!container) return;
 
     if (appState.activeRules.length > 0) {
         container.innerHTML = `
@@ -180,6 +285,7 @@ async function startPingFlood() {
             '> Insira um IP alvo válido',
             'error'
         );
+        addLog("Ataque", "Tentativa de ping flood sem IP alvo", "error");
         return;
     }
 
@@ -195,6 +301,8 @@ async function startPingFlood() {
             '[ATAQUE] Ping Flood Iniciado',
             `> Atacando ${targetIp}`
         );
+
+        addLog("Ataque", `Ping flood iniciado contra ${targetIp}`, "info");
     } catch (error) {
         updateStatus('> Erro na comunicação com o servidor', false);
         showToast(
@@ -202,6 +310,7 @@ async function startPingFlood() {
             '> Não foi possível iniciar ataque. Verifique servidor Flask.',
             'error'
         );
+        addLog("Ataque", `Erro ao iniciar ping flood: ${error.message}`, "error");
     }
 }
 
@@ -217,6 +326,8 @@ async function stopAttack() {
             '[SISTEMA] Ataque Terminado',
             '> Todos os ataques foram finalizados'
         );
+
+        addLog("Ataque", "Todos os ataques foram finalizados", "info");
     } catch (error) {
         updateStatus('> Erro na comunicação com o servidor', false);
         showToast(
@@ -224,12 +335,23 @@ async function stopAttack() {
             '> Não foi possível parar o ataque',
             'error'
         );
+        addLog("Ataque", `Erro ao parar ataques: ${error.message}`, "error");
     }
 }
 
 // Função para MAC spoofing
 async function spoofMac() {
     const iface = document.getElementById('iface').value;
+
+    if (!iface) {
+        showToast(
+            '[ERRO] Interface Obrigatória',
+            '> Insira uma interface de rede válida',
+            'error'
+        );
+        addLog("Ataque", "Tentativa de MAC spoof sem interface", "error");
+        return;
+    }
 
     try {
         const response = await sendRequest(`${appState.API_BASE_URL}/attack/spoof_mac`, 'POST', { iface: iface });
@@ -243,6 +365,8 @@ async function spoofMac() {
             '[EXPLOIT] MAC Spoofing Completo',
             `> Interface ${iface} MAC alterado`
         );
+
+        addLog("Ataque", `MAC spoofing executado na interface ${iface}${response.new_mac ? ` - Novo MAC: ${response.new_mac}` : ''}`, "info");
     } catch (error) {
         updateStatus('> Erro na comunicação com o servidor');
         showToast(
@@ -250,36 +374,74 @@ async function spoofMac() {
             '> Não foi possível executar MAC spoofing. Verifique servidor Flask.',
             'error'
         );
+        addLog("Ataque", `Erro no MAC spoofing: ${error.message}`, "error");
+    }
+}
+
+// Função para limpar logs
+function clearLogs() {
+    const logContainer = document.getElementById('logContainer');
+    if (logContainer) {
+        logContainer.innerHTML = `
+            <div class="log-entry text-green-500-50">
+                <span class="font-bold text-green-400">[Sistema]</span>
+                <span>Logs limpos - Aguardando novas mensagens...</span>
+            </div>
+        `;
     }
 }
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     // Firewall Panel
-    document.getElementById('addBlockRule').addEventListener('click', addBlockRule);
-    document.getElementById('refreshRules').addEventListener('click', loadActiveRules);
+    const addBlockRuleBtn = document.getElementById('addBlockRule');
+    if (addBlockRuleBtn) addBlockRuleBtn.addEventListener('click', addBlockRule);
+
+    const refreshRulesBtn = document.getElementById('refreshRules');
+    if (refreshRulesBtn) refreshRulesBtn.addEventListener('click', loadActiveRules);
 
     // Attack Panel
-    document.getElementById('startPingFlood').addEventListener('click', startPingFlood);
-    document.getElementById('stopAttack').addEventListener('click', stopAttack);
-    document.getElementById('spoofMac').addEventListener('click', spoofMac);
+    const startPingFloodBtn = document.getElementById('startPingFlood');
+    if (startPingFloodBtn) startPingFloodBtn.addEventListener('click', startPingFlood);
+
+    const stopAttackBtn = document.getElementById('stopAttack');
+    if (stopAttackBtn) stopAttackBtn.addEventListener('click', stopAttack);
+
+    const spoofMacBtn = document.getElementById('spoofMac');
+    if (spoofMacBtn) spoofMacBtn.addEventListener('click', spoofMac);
+
+    // Clear logs button
+    const clearLogsBtn = document.getElementById('clearLogs');
+    if (clearLogsBtn) clearLogsBtn.addEventListener('click', clearLogs);
 
     // Permitir envio com Enter no campo MAC
-    document.getElementById('macAddress').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            addBlockRule();
-        }
-    });
+    const macAddressInput = document.getElementById('macAddress');
+    if (macAddressInput) {
+        macAddressInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                addBlockRule();
+            }
+        });
+    }
 
     // Permitir envio com Enter no campo IP
-    document.getElementById('targetIp').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            startPingFlood();
-        }
-    });
+    const targetIpInput = document.getElementById('targetIp');
+    if (targetIpInput) {
+        targetIpInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                startPingFlood();
+            }
+        });
+    }
 
     // Carregar regras iniciais
     loadActiveRules();
+
+    // Inicia a conexão WebSocket
+    connectWebSocket();
+
+    // Log inicial
+    addLog("Sistema", "Painel de Controle SDN carregado com sucesso!", "info");
 
     console.log('Painel de Controle SDN carregado com sucesso!');
 });
