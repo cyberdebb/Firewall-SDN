@@ -26,8 +26,7 @@ app = Flask(__name__)
 
 # O endereço da API interna do próprio Ryu.
 # O script Flask vai enviar os dados para este endereço.
-# Usar 'localhost' (ou 127.0.0.1) é ideal quando o Flask e o Ryu rodam na mesma máquina.
-# Se estivessem em máquinas diferentes, aqui iria o IP da máquina do Ryu.
+# Usamos 'localhost' porque o Flask e o Ryu rodam na mesma máquina.
 RYU_API_URL = os.environ.get('RYU_API_URL', 'http://localhost:8080/firewall/rules')
 
 # Chave de API secreta para autenticar as requisições que vêm do ESP32.
@@ -38,8 +37,7 @@ EXPECTED_API_KEY = os.environ.get('API_KEY')
 @app.route('/firewall/rules', methods=['POST'])
 def forward_firewall_rules():
     """
-    Esta função é o coração da API. Ela é acionada toda vez que o ESP32 envia
-    um POST para /firewall/rules.
+    Esta função é acionada toda vez que o ESP32 envia um POST para /firewall/rules.
     """
     
     # ETAPA 1: SEGURANÇA - Validar a requisição vinda do ESP32.
@@ -61,11 +59,9 @@ def forward_firewall_rules():
         print(f"Reenviando regras para o Ryu em {RYU_API_URL}...")
         
         # Faz a requisição POST para o Ryu, passando exatamente o mesmo JSON recebido.
-        # O timeout é uma salvaguarda para não travar se o Ryu demorar muito para responder.
         response = requests.post(RYU_API_URL, json=data, timeout=5)
 
-        # Esta linha é muito útil: ela gera um erro automaticamente se o Ryu responder
-        # com um código de falha (como 4xx ou 5xx). O erro será capturado pelo 'except'.
+        # Gera um erro automaticamente se o Ryu responder com um código de falha.
         response.raise_for_status() 
 
         print("Ryu processou as regras com sucesso.")
@@ -75,7 +71,6 @@ def forward_firewall_rules():
     # --- Tratamento de Erros de Conexão ---
     except requests.exceptions.RequestException as e:
         # Este bloco é executado se houver um problema de rede ao tentar falar com o Ryu
-        # (ex: o Ryu não está rodando, o IP está errado, a rede caiu).
         print(f"ERRO: Não foi possível conectar ao controlador Ryu: {e}")
         return jsonify({"error": "Falha ao contatar o controlador Ryu"}), 503 # 503 Service Unavailable
 
@@ -88,7 +83,7 @@ def forward_firewall_rules():
 # --- Bloco de Execução Principal ---
 if __name__ == '__main__':
     # Inicia o servidor Flask.
-    # 'host="0.0.0.0"' é crucial: significa que o servidor irá aceitar conexões
+    # 'host="0.0.0.0"' significa que o servidor irá aceitar conexões
     # de qualquer interface de rede, permitindo que o ESP32 (que está na rede Wi-Fi)
     # consiga se conectar. Se usássemos 'localhost', apenas conexões da própria
     # máquina seriam aceitas.

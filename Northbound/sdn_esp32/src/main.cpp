@@ -1,5 +1,5 @@
 /**
- * @file intelligent_firewall.ino
+ * @file main.cpp
  * @brief Este firmware transforma um ESP32 em um sensor de rede inteligente (IDS/IPS).
  *
  * ARQUITETURA:
@@ -48,8 +48,6 @@ std::map<String, String> ip_to_mac;
 std::vector<FirewallRule> active_rules;
 
 // --- Estruturas para Decodificar Pacotes ---
-// Estes "typedefs" são como moldes que nos permitem ler os dados brutos de um pacote
-// de forma organizada, acessando cada campo do cabeçalho pelo nome.
 #pragma pack(push, 1) // Garante que o compilador não adicione preenchimento, para o molde ser exato.
 typedef struct {
     uint8_t dest_mac[6];
@@ -85,7 +83,7 @@ void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type);
 unsigned long last_check_time = 0; // Para o controle de tempo não-bloqueante no loop.
 
 // =================================================================
-// --- SETUP: A INICIALIZAÇÃO DO FIREWALL ---
+// --- SETUP ---
 // =================================================================
 void setup() {
     Serial.begin(115200);
@@ -96,9 +94,8 @@ void setup() {
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println("\nIniciando firewall em modo inteligente...");
         
-        // Ativa o "Modo Promíscuo", que é a capacidade da placa de rede de "ouvir"
-        // todos os pacotes que passam pelo ar, não apenas os endereçados a ela.
-        // É isso que transforma o ESP32 em um verdadeiro "sensor de rede".
+        // Ativa o "Modo Promíscuo", que é a capacidade da placa de rede de
+        // "ouvir" todos os pacotes que passam pelo ar, não apenas os endereçados a ela.
         esp_wifi_set_promiscuous(true);
         // Registra a função que será chamada para cada pacote capturado.
         esp_wifi_set_promiscuous_rx_cb(&sniffer_callback);
@@ -110,7 +107,7 @@ void setup() {
 }
 
 // =================================================================
-// --- LOOP PRINCIPAL: O CÉREBRO PENSANTE ---
+// --- LOOP PRINCIPAL ---
 // =================================================================
 void loop() {
     // Esta estrutura com millis() cria uma tarefa periódica sem travar o processador com delays.
@@ -120,20 +117,18 @@ void loop() {
 
         // Itera sobre o mapa de IPs que vimos no último intervalo.
         for (auto const& [ip, ports] : ip_to_ports) {
-            // AQUI ESTÁ A LÓGICA DE DECISÃO DO FIREWALL INTELIGENTE:
             // Se um único IP tentou se conectar a mais portas do que o nosso limite...
             if (ports.size() > PORT_SCAN_THRESHOLD) {
                 String mac_to_block = ip_to_mac[ip]; // Busca o MAC associado a esse IP.
                 Serial.printf("!!! DETECÇÃO DE PORT SCAN !!! IP: %s (MAC: %s) escaneou %d portas.\n",
                               ip.c_str(), mac_to_block.c_str(), ports.size());
                 
-                // TOMADA DE AÇÃO: Inicia o processo de bloqueio.
+                // Inicia o processo de bloqueio.
                 blockMacAddress(mac_to_block);
             }
         }
         
         // Após a análise, a "memória de curto prazo" é limpa para o próximo ciclo.
-        // Isso garante que estamos sempre analisando apenas a atividade recente.
         ip_to_ports.clear();
         ip_to_mac.clear();
         
@@ -142,7 +137,7 @@ void loop() {
 }
 
 // =================================================================
-// --- FUNÇÃO SNIFFER: OS "OLHOS E OUVIDOS" ---
+// --- FUNÇÃO SNIFFER ---
 // =================================================================
 /**
  * @brief Esta é a função mais crítica e de mais baixo nível.
@@ -174,8 +169,7 @@ void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
 
             uint16_t dest_port = ntohs(tcp_hdr->dest_port);
 
-            // ARMAZENA OS DADOS COLETADOS para a análise que acontecerá no loop().
-            // Esta é a única "ação" que o sniffer deve fazer.
+            // Armazena os dados coletados para a análise que acontecerá no loop().
             ip_to_ports[String(src_ip_str)].insert(dest_port);
             ip_to_mac[String(src_ip_str)] = String(src_mac_str);
         }
@@ -219,7 +213,7 @@ void blockMacAddress(const String& mac) {
 }
 
 /**
- * @brief Envia UMA ÚNICA regra para o controlador. É mais eficiente do que enviar a lista toda.
+ * @brief Envia UMA ÚNICA regra para o controlador.
  * Esta função é a ponte entre a decisão tomada neste dispositivo (Plano de Aplicação)
  * e a execução que será feita pelo controlador (Plano de Controle).
  */

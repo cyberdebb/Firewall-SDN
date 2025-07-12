@@ -11,7 +11,7 @@
 #   BLOQUEAR o tráfego malicioso diretamente nos switches.
 #
 # RESPONSABILIDADE 2: LEARNING SWITCH (Gerente de Tráfego Legítimo)
-# - Para TODO o tráfego que NÃO é bloqueado, ele atua como um switch inteligente.
+# - Para todo o tráfego que NÃO é bloqueado, ele atua como um switch inteligente.
 # - Ele aprende a localização dos dispositivos na rede (MACs e portas).
 # - Ele instala regras de fluxo proativas para encaminhar o tráfego legítimo
 #   de forma eficiente, sem precisar ser consultado a cada pacote.
@@ -23,8 +23,7 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet, ethernet, ether_types
 from ryu.app.wsgi import WSGIApplication
 
-# Importa o controlador da API e a constante do outro arquivo.
-# Isso permite que o Ryu carregue os dois componentes juntos.
+# Importa o controlador da API e a constante do firewall_api.py
 from firewall_api import FirewallAPIController, SIMPLE_FIREWALL_INSTANCE_NAME
 
 class SimpleFirewall(app_manager.RyuApp):
@@ -37,7 +36,6 @@ class SimpleFirewall(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(SimpleFirewall, self).__init__(*args, **kwargs)
         # Tabela de aprendizado: armazena {dpid -> {mac: porta}}
-        # É como o cérebro do switch sabe qual MAC está conectado em qual porta.
         self.mac_to_port = {}
         # Conjunto (set) para armazenar os MACs bloqueados. Usar um set é muito
         # mais rápido para verificar se um item existe do que usar uma lista.
@@ -50,7 +48,7 @@ class SimpleFirewall(app_manager.RyuApp):
         wsgi = kwargs['wsgi']
         # Registra a nossa classe de API (FirewallAPIController), passando uma
         # referência a esta própria instância (self) para que a API possa
-        # chamar os métodos deste aplicativo (como o update_mac_rules).
+        # chamar os métodos deste aplicativo.
         wsgi.register(FirewallAPIController, {SIMPLE_FIREWALL_INSTANCE_NAME: self})
         self.logger.info("API do Firewall Ryu pronta em http://<ip_ryu>:8080/firewall/rules")
 
@@ -64,7 +62,7 @@ class SimpleFirewall(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         self.logger.info(f"Switch conectado: {datapath.id:016x}")
-        # Armazena o objeto datapath para uso futuro (ex: para aplicar novas regras).
+        # Armazena o objeto datapath para uso futuro.
         self.datapaths[datapath.id] = datapath
         self.mac_to_port.setdefault(datapath.id, {})
 
@@ -93,7 +91,6 @@ class SimpleFirewall(app_manager.RyuApp):
     def update_mac_rules(self, rules):
         """
         Este método é chamado pela nossa API interna quando recebe uma ordem do firewall.
-        É a ponte entre a decisão de segurança e a execução.
         """
         self.logger.info(f"Recebendo atualização de regras via API: {rules}")
         # Uma abordagem simples: apaga a lista antiga e recria com as novas regras.
@@ -106,7 +103,7 @@ class SimpleFirewall(app_manager.RyuApp):
                 self.blocked_macs.add(mac.lower())
         
         self.logger.info(f"Lista de MACs bloqueados atualizada: {self.blocked_macs}")
-        # Aplica as novas regras em TODOS os switches que estão conectados.
+        # Aplica as novas regras em todos os switches que estão conectados.
         for datapath in self.datapaths.values():
             self._apply_block_rules_for_datapath(datapath)
 
@@ -133,7 +130,7 @@ class SimpleFirewall(app_manager.RyuApp):
         """
         Este é o coração do "Learning Switch". Ele é executado para cada pacote
         que o switch não sabe o que fazer (devido à regra de table-miss).
-        Sua função é lidar com o tráfego LEGÍTIMO.
+        Sua função é lidar com o tráfego legítimo.
         """
         msg = ev.msg
         datapath = msg.datapath
@@ -168,7 +165,7 @@ class SimpleFirewall(app_manager.RyuApp):
             # ...pegamos a porta de saída correta.
             out_port = self.mac_to_port[dpid][dst]
             actions = [parser.OFPActionOutput(out_port)]
-            # E instalamos uma NOVA REGRA no switch para otimizar o tráfego futuro.
+            # E instalamos uma nova regra no switch para otimizar o tráfego futuro.
             # "Da próxima vez que vir um pacote de 'src' para 'dst', envie-o direto
             # para 'out_port', sem me perguntar de novo."
             # Prioridade 1: maior que table-miss (0), menor que bloqueio (10).
@@ -181,8 +178,7 @@ class SimpleFirewall(app_manager.RyuApp):
         else:
             # Se o MAC de destino é desconhecido, a única opção é fazer "FLOOD":
             # enviar o pacote para todas as portas, exceto a que ele veio.
-            # É como perguntar em voz alta: "Quem tem o MAC 'dst'?". O dispositivo
-            # correto irá responder, e na resposta, o controlador aprenderá sua localização.
+            # O dispositivo correto irá responder, e na resposta, o controlador aprenderá sua localização.
             out_port = ofproto.OFPP_FLOOD
             actions = [parser.OFPActionOutput(out_port)]
             out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER, in_port=in_port, actions=actions, data=msg.data)

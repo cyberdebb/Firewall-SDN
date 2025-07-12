@@ -2,9 +2,8 @@
 #
 # ARQUITETURA:
 # Este script define a API REST que roda DENTRO do controlador Ryu. Ele é o ponto de
-# entrada para ordens externas. Ele não contém a lógica de controle de switches,
-# apenas a lógica para receber, validar e passar as ordens para o aplicativo
-# principal do Ryu.
+# entrada para ordens externas. Contém a lógica para receber, validar e passar as 
+# ordens para o aplicativo principal do Ryu.
 #
 # RESPONSABILIDADES:
 # 1. EXPOR UM ENDPOINT: Cria a rota HTTP (ex: /firewall/rules) que a API Northbound
@@ -18,8 +17,7 @@ from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from webob import Response
 import json
 
-# Uma constante para evitar "magic strings". É o nome que o Ryu usa para
-# identificar a instância do nosso aplicativo principal.
+# Nome que o Ryu usa para identificar a instância do nosso aplicativo principal.
 SIMPLE_FIREWALL_INSTANCE_NAME = 'SimpleFirewall'
 
 class FirewallAPIController(ControllerBase):
@@ -48,20 +46,15 @@ class FirewallAPIController(ControllerBase):
             rules = body.get('rules', [])
             
             # ETAPA DE DELEGAÇÃO:
-            # Aqui, a API não tenta entender as regras. Ela simplesmente chama
-            # o método 'update_mac_rules' do nosso aplicativo principal (SimpleFirewall)
-            # e passa a lista de regras para ele.
+            # Aqui, a API chama o método 'update_mac_rules' do nosso aplicativo principal e passa a lista de regras para ele.
             self.firewall_app.update_mac_rules(rules)
             
             # Se a delegação for bem-sucedida, retorna uma resposta de sucesso (200 OK).
-            # O .encode('utf-8') é crucial para converter a string JSON em bytes,
-            # como esperado pela biblioteca webob do Ryu.
             return Response(content_type='application/json', body=json.dumps({'status': 'Regras processadas pelo Ryu'}).encode('utf-8'))
         
         except Exception as e:
-            # Se qualquer erro ocorrer durante o processamento no aplicativo principal,
-            # ele será capturado aqui.
+            # Se qualquer erro ocorrer durante o processamento no aplicativo principal, ele será capturado aqui.
             logger = self.firewall_app.logger
             logger.error(f"Ocorreu um erro inesperado na API do Ryu: {e}")
-            # Retorna um erro 500 para a API Flask, que por sua vez o reportará.
+            # Retorna um erro 500 para a API Flask.
             return Response(status=500, body=json.dumps({'error': str(e)}).encode('utf-8'))
